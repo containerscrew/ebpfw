@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	devstdout "github.com/containerscrew/devstdout/pkg"
 	"github.com/containerscrew/ebpfw/dto"
@@ -22,7 +21,6 @@ func main(){
 	)
 
 	log.Info("Starting ebpfw")
-	log.Info(fmt.Sprintf("%v", config.Firewall))
 
 	// Create a struct to hold both log and config
 	contextData := &dto.ContextData{

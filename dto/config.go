@@ -19,7 +19,6 @@ type Config struct {
 }
 
 type FirewallConfig struct {
-	DefaultDeny		 bool        `toml:"default_deny"`
     AllowedPorts     []int       `toml:"allowed_ports"`
 }
 

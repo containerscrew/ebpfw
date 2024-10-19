@@ -19,13 +19,6 @@ import (
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -type event bpf ./xdp.bpf.c -- -I../headers
 
-// Helper function to add allowed ports
-func addAllowedPort(port uint16, objs *bpfObjects) error {
-	portBE := bpf_htons(port) // Convert to network byte order
-	var value uint8 = 1
-	return objs.AllowedPorts.Put(portBE, value)
-}
-
 func StartNetworkTracking(ctx context.Context) {
 	// Retrieve the context data (log and config) from the context
 	contextData := dto.GetContextData(ctx)
@@ -80,13 +73,6 @@ func StartNetworkTracking(ctx context.Context) {
 		devstdout.Argument("ip", localIp),
 	)
 
-	// Apply allowed ports rules
-	for _, port := range config.Firewall.AllowedPorts {
-		if err := addAllowedPort(uint16(port), &objs); err != nil {
-			logger.Warning("Failed to add allowed Port", err)
-		}
-	}
-
 	// Create a perf reader to read events from the kernel
 	reader, err := perf.NewReader(objs.Events, os.Getpagesize())
 	if err != nil {
@@ -112,32 +98,21 @@ func StartNetworkTracking(ctx context.Context) {
 		}
 
 		// Log events
-		messageHandler(event, config, logger)
+		messageHandler(event, logger)
 	}
 }
 
-func messageHandler(event bpfEvent, config *dto.Config, logger *devstdout.CustomLogger) {
+func messageHandler(event bpfEvent, logger *devstdout.CustomLogger) {
 	// Determine the protocol as a string
 	protocol := utils.GetProtocolType(event.Protocol)
 
-	// By default, we drop all packets unless allowed
-	action := "dropped"
-
-	// Check if the destination port is in the allowed list
-	if config.Firewall.DefaultDeny {
-		if containsInt(config.Firewall.AllowedPorts, int(event.Dport)) {
-			action = "forwarded"
-		}
-	}
-
-	// Log based on action
-	if action == "dropped" {
-		logger.Warning(fmt.Sprintf("Packet from IP %s to port %d dropped.", intToIP(event.Saddr), event.Dport))
-	} else {
-		logger.Debug(fmt.Sprintf("Packet from IP %s to port %d %s.", intToIP(event.Saddr), event.Dport, action),
-			devstdout.Argument("protocol", protocol),
-		)
-	}
+	logger.Info("received new packet",
+		devstdout.Argument("source_ip", intToIP(event.Saddr).String()),
+		devstdout.Argument("destination_ip", intToIP(event.Daddr).String()),
+		devstdout.Argument("source_port", event.Sport),
+		devstdout.Argument("destination_port", event.Dport),
+		devstdout.Argument("protocol", protocol),
+	)
 }
 
 // intToIP converts a 32-bit IPv4 number to net.IP
@@ -145,19 +120,4 @@ func intToIP(ipNum uint32) net.IP {
 	ip := make(net.IP, 4)
 	binary.BigEndian.PutUint32(ip, ipNum)
 	return ip
-}
-
-// Helper function to convert uint16 to network byte order
-func bpf_htons(port uint16) uint16 {
-	return (port>>8)&0xff | (port<<8)&0xff00
-}
-
-// Helper function to check if a slice contains an int
-func containsInt(slice []int, item int) bool {
-	for _, a := range slice {
-		if a == item {
-			return true
-		}
-	}
-	return false
 }

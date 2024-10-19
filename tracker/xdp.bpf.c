@@ -1,15 +1,15 @@
 //go:build ignore
 
 // Required headers for eBPF and networking
-#include <linux/bpf.h>
-#include <linux/if_ether.h>
-#include <linux/ip.h>
-#include <linux/udp.h>
-#include <linux/tcp.h>
-#include <linux/in.h>
-#include <bpf/bpf_helpers.h>
-#include <bpf/bpf_endian.h>
-#include <linux/version.h>
+#include <linux/bpf.h>         // Core BPF definitions (e.g., SEC, BPF helpers)
+#include <linux/if_ether.h>    // Ethernet header definitions (e.g., ethhdr)
+#include <linux/ip.h>          // IP header definitions (e.g., iphdr)
+#include <linux/udp.h>         // UDP header definitions (e.g., udphdr)
+#include <linux/tcp.h>         // TCP header definitions (e.g., tcphdr)
+#include <linux/in.h>          // Protocol definitions (e.g., IPPROTO_UDP, IPPROTO_TCP)
+#include <bpf/bpf_helpers.h>   // BPF helper macros (e.g., SEC() for section definitions)
+#include <bpf/bpf_endian.h>    // BPF helper functions for endian conversion (e.g., bpf_htons())
+#include <linux/version.h>     // Kernel version macros (e.g., LINUX_VERSION_CODE)
 
 // Required license declaration for the eBPF verifier
 char __license[] SEC("license") = "Dual MIT/GPL";
@@ -23,14 +23,6 @@ struct event {
     __be16 dport;    // Destination port (big-endian)
     __u8 protocol;   // Protocol type (e.g., IPPROTO_TCP or IPPROTO_UDP)
 };
-
-// Define a map to store allowed ports
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);    // Define map type as a hash map
-    __type(key, __be16);                // Use port numbers as keys (big-endian)
-    __type(value, __u8);                // Use an unsigned 8-bit value as a flag
-    __uint(max_entries, 1024);          // Allow up to 1024 entries
-} allowed_ports SEC(".maps");           // Name the map 'allowed_ports'
 
 // Define a perf event array map to send data to user space
 struct {
@@ -48,21 +40,21 @@ int xdp_prog(struct xdp_md *ctx) {
     // Parse Ethernet header
     struct ethhdr *eth = data;
     if ((void *)eth + sizeof(*eth) > data_end)
-        return XDP_DROP;  // Drop packet if too short
+        return XDP_PASS;  // Pass packet if too short (can't inspect it)
 
     // Check if the EtherType is IPv4 (0x0800 for IPv4)
     if (eth->h_proto != bpf_htons(ETH_P_IP))
-        return XDP_DROP;  // Drop non-IPv4 packets
+        return XDP_PASS;  // Pass non-IPv4 packets
 
     // Parse IP header
     struct iphdr *iph = data + sizeof(*eth);
     if ((void *)iph + sizeof(*iph) > data_end)
-        return XDP_DROP;  // Drop if IP header is incomplete
+        return XDP_PASS;  // Pass if IP header is incomplete
 
     // Process only TCP or UDP packets
     __u8 protocol = iph->protocol;
     if (protocol != IPPROTO_UDP && protocol != IPPROTO_TCP)
-        return XDP_DROP;  // Drop non-TCP/UDP packets
+        return XDP_PASS;  // Pass non-TCP/UDP packets
 
     // Initialize event structure
     struct event ev = {
@@ -75,30 +67,18 @@ int xdp_prog(struct xdp_md *ctx) {
     if (protocol == IPPROTO_UDP) {
         struct udphdr *udph = (void *)iph + sizeof(*iph);
         if ((void *)udph + sizeof(*udph) > data_end)
-            return XDP_DROP;  // Drop if UDP header is incomplete
+            return XDP_PASS;  // Pass if UDP header is incomplete
 
         ev.sport = udph->source;
         ev.dport = udph->dest;
 
-        // Check if the destination port is allowed
-        __u8 *allowed_port = bpf_map_lookup_elem(&allowed_ports, &udph->dest);
-        if (!allowed_port) {
-            return XDP_DROP;  // Drop if the port is not allowed
-        }
-
     } else if (protocol == IPPROTO_TCP) {
         struct tcphdr *tcph = (void *)iph + sizeof(*iph);
         if ((void *)tcph + sizeof(*tcph) > data_end)
-            return XDP_DROP;  // Drop if TCP header is incomplete
+            return XDP_PASS;  // Pass if TCP header is incomplete
 
         ev.sport = tcph->source;
         ev.dport = tcph->dest;
-
-        // Check if the destination port is allowed
-        __u8 *allowed_port = bpf_map_lookup_elem(&allowed_ports, &tcph->dest);
-        if (!allowed_port) {
-            return XDP_DROP;  // Drop if the port is not allowed
-        }
     }
 
     // Send the event to user space via the perf ring buffer

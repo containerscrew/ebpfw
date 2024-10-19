@@ -6,7 +6,5 @@ level = "debug" # info, debug, warn, error, success, trace
 type = "pretty" # json, console, pretty
 
 [firewall]
-# By default, will block all incoming connections
-default_deny = true
-# Allow specific ports
-allowed_ports = [3000]
+# All incoming connections will be blocked by default
+allowed_ports = [22] # Specify ports you want to allow
