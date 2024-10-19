@@ -1,0 +1,12 @@
+[global]
+interface_name = "enp0s20f0u1u3"
+
+[log]
+level = "debug" # info, debug, warn, error, success, trace
+type = "pretty" # json, console, pretty
+
+[firewall]
+# By default, will block all incoming connections
+default_deny = true
+# Allow specific ports
+allowed_ports = [3000]
