@@ -1,2 +1,2 @@
 # ebpfw
-Firewall using ebpf and XDP
+Firewall using ebpf and XDP/TC
