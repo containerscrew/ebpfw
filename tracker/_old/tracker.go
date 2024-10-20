@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/perf"
 	devstdout "github.com/containerscrew/devstdout/pkg"
@@ -18,6 +19,27 @@ import (
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -type event bpf ./xdp.bpf.c -- -I../headers
+
+// SetDenyPolicy sets the "default deny" policy in the eBPF program.
+// If enable is true, incoming traffic is denied by default unless explicitly allowed.
+func SetDenyPolicy(enable bool, objs *bpfObjects) {
+	var mode uint8 = 0
+	if enable {
+		mode = 1
+	}
+	key := uint32(0)
+	if err := objs.DenyPolicy.Update(&key, &mode, ebpf.UpdateAny); err != nil {
+		log.Printf("Failed to set deny policy: %v", err)
+	}
+}
+
+// AddAllowedPort adds a port to the allowed ports map in the eBPF program.
+func AddAllowedPort(port uint16, objs *bpfObjects) {
+	var value uint8 = 1
+	if err := objs.AllowedPorts.Update(&port, &value, ebpf.UpdateAny); err != nil {
+		log.Printf("Failed to add allowed port: %v", err)
+	}
+}
 
 func StartNetworkTracking(ctx context.Context) {
 	// Retrieve the context data (log and config) from the context
@@ -72,6 +94,12 @@ func StartNetworkTracking(ctx context.Context) {
 		devstdout.Argument("index", iface.Index),
 		devstdout.Argument("ip", localIp),
 	)
+
+	// Set default deny policy (enable or disable)
+	SetDenyPolicy(true, &objs)  // Enable default deny to block incoming traffic by default
+	AddAllowedPort(80, &objs)   // Allow HTTP traffic
+	AddAllowedPort(443, &objs)  // Allow HTTPS traffic
+	AddAllowedPort(8080, &objs) // Allow Nginx on 8080
 
 	// Create a perf reader to read events from the kernel
 	reader, err := perf.NewReader(objs.Events, os.Getpagesize())

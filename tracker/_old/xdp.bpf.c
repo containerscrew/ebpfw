@@ -29,7 +29,35 @@ struct {
     __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY); // Map type: perf event array
 } events SEC(".maps");                           // Map name: events
 
+// Map to control the "default deny" policy (0: allow all, 1: default deny incoming)
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u8);
+} deny_policy SEC(".maps");
+
+// Map to store allowed ports (dynamically configurable)
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 256); // Max 256 allowed ports
+    __type(key, __u16);
+    __type(value, __u8);
+} allowed_ports SEC(".maps");
+
+// Map to track outgoing connections (destination IP and port)
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024); // Track up to 1024 connections
+    __type(key, __u32);  // Key is the 32-bit hash of destination IP and port
+    __type(value, __u8); // Dummy value
+} outgoing_connections SEC(".maps");
+
 struct event *unused __attribute__((unused)); // Prevent "variable unused" warning
+
+static __u32 generate_conn_key(__be32 ip, __be16 port) {
+    return ip ^ ((__u32)port << 16); // Create a simple key based on IP and port
+}
 
 SEC("xdp")
 int xdp_prog(struct xdp_md *ctx) {
@@ -81,8 +109,38 @@ int xdp_prog(struct xdp_md *ctx) {
         ev.dport = tcph->dest;
     }
 
-    // Send the event to user space via the perf ring buffer
-    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
+    // Determine if packet is outgoing or incoming
+    if (iph->saddr == bpf_htonl(0xC0A8001C)) { // Replace with your local IP address
+        // Outgoing packet - track destination
+        __u32 conn_key = generate_conn_key(ev.daddr, ev.dport);
+        __u8 dummy_value = 1;
+        bpf_map_update_elem(&outgoing_connections, &conn_key, &dummy_value, BPF_ANY);
+    } else {
+        // Incoming packet - check if related to outgoing connection
+        __u32 conn_key = generate_conn_key(ev.saddr, ev.sport);
+        __u8 *tracked = bpf_map_lookup_elem(&outgoing_connections, &conn_key);
+        if (tracked) {
+            bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
+            return XDP_PASS;
+        }
+    }
 
+    // Check deny policy
+    __u32 key = 0;
+    __u8 *deny_mode = bpf_map_lookup_elem(&deny_policy, &key);
+    if (deny_mode && *deny_mode == 1) {
+        // Default deny is enabled; check allowed ports
+        __u8 *allowed = bpf_map_lookup_elem(&allowed_ports, &ev.dport);
+        if (allowed) {
+            // Port is allowed, let the packet pass
+            bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
+            return XDP_PASS;
+        }
+        // Default behavior: Drop the packet if not explicitly allowed
+        return XDP_DROP;
+    }
+
+    // If default deny is not enabled, allow all traffic
+    bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &ev, sizeof(ev));
     return XDP_PASS;  // Allow the packet to continue through the network stack
 }

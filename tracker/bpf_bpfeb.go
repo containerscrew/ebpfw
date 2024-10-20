@@ -12,13 +12,10 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type bpfEvent struct {
-	Saddr    uint32
-	Daddr    uint32
-	Sport    uint16
-	Dport    uint16
-	Protocol uint8
-	_        [3]byte
+type bpfUnauthorizedEntry struct {
+	SrcIp  uint32
+	DestIp uint32
+	Count  uint32
 }
 
 // loadBpf returns the embedded CollectionSpec for bpf.
@@ -62,14 +59,16 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
-	XdpProg *ebpf.ProgramSpec `ebpf:"xdp_prog"`
+	EgressProgFunc  *ebpf.ProgramSpec `ebpf:"egress_prog_func"`
+	IngressProgFunc *ebpf.ProgramSpec `ebpf:"ingress_prog_func"`
 }
 
 // bpfMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
-	Events *ebpf.MapSpec `ebpf:"events"`
+	EstablishedConns     *ebpf.MapSpec `ebpf:"established_conns"`
+	UnauthorizedAttempts *ebpf.MapSpec `ebpf:"unauthorized_attempts"`
 }
 
 // bpfObjects contains all objects after they have been loaded into the kernel.
@@ -91,12 +90,14 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
-	Events *ebpf.Map `ebpf:"events"`
+	EstablishedConns     *ebpf.Map `ebpf:"established_conns"`
+	UnauthorizedAttempts *ebpf.Map `ebpf:"unauthorized_attempts"`
 }
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
-		m.Events,
+		m.EstablishedConns,
+		m.UnauthorizedAttempts,
 	)
 }
 
@@ -104,12 +105,14 @@ func (m *bpfMaps) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
-	XdpProg *ebpf.Program `ebpf:"xdp_prog"`
+	EgressProgFunc  *ebpf.Program `ebpf:"egress_prog_func"`
+	IngressProgFunc *ebpf.Program `ebpf:"ingress_prog_func"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
-		p.XdpProg,
+		p.EgressProgFunc,
+		p.IngressProgFunc,
 	)
 }
 

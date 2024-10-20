@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-
 	devstdout "github.com/containerscrew/devstdout/pkg"
 	"github.com/containerscrew/ebpfw/dto"
 	"github.com/containerscrew/ebpfw/tracker"
@@ -23,13 +21,14 @@ func main(){
 	log.Info("Starting ebpfw")
 
 	// Create a struct to hold both log and config
-	contextData := &dto.ContextData{
-		Log:    log,
-		Config: &config,
-	}
+	// contextData := &dto.ContextData{
+	// 	Log:    log,
+	// 	Config: &config,
+	// }
 
 	// Add the contextData struct to the context using the custom key
-	ctx := context.WithValue(context.Background(), dto.ContextDataKey, contextData)
+	//ctx := context.WithValue(context.Background(), dto.ContextDataKey, contextData)
 
-	tracker.StartNetworkTracking(ctx)
+	//tracker.StartNetworkTracking(ctx)
+    tracker.StartEbpfw()
 }
